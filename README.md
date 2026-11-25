@@ -14,6 +14,31 @@ Its branches:
   for use without a replace directive. Upstream (`v2`) and `gmail` are merged
   into it to update it.
 
+To merge upstream, in a clone of this fork (`origin`):
+
+```sh
+git remote add upstream https://github.com/emersion/go-imap.git # once
+git fetch upstream origin
+
+# v2: fast-forward to upstream
+git checkout v2 && git merge --ff-only upstream/v2 && git push origin v2
+
+# gmail: merge upstream into the changes
+git checkout gmail && git merge v2 && go test ./... && git push origin gmail
+
+# cogentcore: merge gmail; conflicts are only the renamed import paths,
+# so keep the github.com/cogentcore/go-imap/v2 side of them
+git checkout cogentcore && git merge gmail
+grep -rl 'github.com/emersion/go-imap/v2' --include='*.go' --include=go.mod . # must be empty
+go test ./... && git push origin cogentcore
+```
+
+Then, in a module that uses it, update to the new `cogentcore` commit:
+
+```sh
+GOWORK=off go get github.com/cogentcore/go-imap/v2@cogentcore
+```
+
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/cogentcore/go-imap/v2.svg)](https://pkg.go.dev/github.com/cogentcore/go-imap/v2)
 
