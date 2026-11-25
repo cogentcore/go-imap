@@ -9,10 +9,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/emersion/go-imap/v2"
-	"github.com/emersion/go-imap/v2/imapclient"
-	"github.com/emersion/go-imap/v2/imapserver"
-	"github.com/emersion/go-imap/v2/imapserver/imapmemserver"
+	"github.com/cogentcore/go-imap/v2"
+	"github.com/cogentcore/go-imap/v2/imapclient"
+	"github.com/cogentcore/go-imap/v2/imapserver"
+	"github.com/cogentcore/go-imap/v2/imapserver/imapmemserver"
 )
 
 // gmailMessage is a message in gmailSession's single mailbox.

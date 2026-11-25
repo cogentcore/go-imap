@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/emersion/go-imap/v2/internal/imapwire"
+	"github.com/cogentcore/go-imap/v2/internal/imapwire"
 )
 
 func TestEncoderGmailLabel(t *testing.T) {

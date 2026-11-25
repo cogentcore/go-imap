@@ -3,8 +3,8 @@ package imapclient
 import (
 	"io"
 
-	"github.com/emersion/go-imap/v2"
-	"github.com/emersion/go-imap/v2/internal"
+	"github.com/cogentcore/go-imap/v2"
+	"github.com/cogentcore/go-imap/v2/internal"
 )
 
 // Append sends an APPEND command.
