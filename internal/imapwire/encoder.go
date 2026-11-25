@@ -162,6 +162,22 @@ func (enc *Encoder) Mailbox(name string) *Encoder {
 	}
 }
 
+// GmailLabel writes a Gmail label (X-GM-LABELS extension).
+//
+// System labels (e.g. "\\Inbox") are written as flag-like atoms. Other labels
+// are encoded like mailbox names.
+func (enc *Encoder) GmailLabel(label string) *Encoder {
+	if strings.HasPrefix(label, "\\") && isValidFlag(label) {
+		return enc.writeString(label)
+	}
+	if enc.QuotedUTF8 {
+		label = utf7.Escape(label)
+	} else {
+		label = utf7.Encode(label)
+	}
+	return enc.String(label)
+}
+
 func (enc *Encoder) NumSet(numSet imap.NumSet) *Encoder {
 	s := numSet.String()
 	if s == "" {

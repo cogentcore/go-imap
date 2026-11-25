@@ -74,6 +74,11 @@ const (
 	CapUIDOnly          Cap = "UIDONLY"            // RFC 9586
 	CapListMetadata     Cap = "LIST-METADATA"      // RFC 9590
 	CapInProgress       Cap = "INPROGRESS"         // RFC 9585
+
+	// CapGmailExt1 is Gmail's IMAP extension, which adds the X-GM-MSGID,
+	// X-GM-THRID and X-GM-LABELS message attributes and the X-GM-RAW search
+	// key. See https://developers.google.com/gmail/imap/imap-extensions
+	CapGmailExt1 Cap = "X-GM-EXT-1"
 )
 
 var imap4rev2Caps = CapSet{

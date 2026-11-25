@@ -59,6 +59,13 @@ type SearchCriteria struct {
 	Or  [][2]SearchCriteria
 
 	ModSeq *SearchCriteriaModSeq // requires CONDSTORE
+
+	// GmailRaw is a Gmail search query, using the same syntax as the Gmail
+	// web interface (X-GM-RAW). Requires X-GM-EXT-1.
+	GmailRaw string
+	// GmailThreadID matches messages in the given Gmail thread (X-GM-THRID).
+	// Requires X-GM-EXT-1.
+	GmailThreadID uint64
 }
 
 // And intersects two search criteria.
@@ -87,6 +94,20 @@ func (criteria *SearchCriteria) And(other *SearchCriteria) {
 
 	criteria.Not = append(criteria.Not, other.Not...)
 	criteria.Or = append(criteria.Or, other.Or...)
+
+	// Gmail queries are implicitly intersected when separated by a space
+	switch {
+	case criteria.GmailRaw == "":
+		criteria.GmailRaw = other.GmailRaw
+	case other.GmailRaw != "":
+		criteria.GmailRaw = "(" + criteria.GmailRaw + ") (" + other.GmailRaw + ")"
+	}
+	if criteria.GmailThreadID == 0 {
+		criteria.GmailThreadID = other.GmailThreadID
+	} else if other.GmailThreadID != 0 && other.GmailThreadID != criteria.GmailThreadID {
+		// A message belongs to a single thread: the intersection is empty
+		criteria.Not = append(criteria.Not, SearchCriteria{})
+	}
 }
 
 func intersectSince(t1, t2 time.Time) time.Time {

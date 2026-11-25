@@ -45,3 +45,26 @@ func TestExpectMailboxInvalidUTF7(t *testing.T) {
 	}
 	expectDecoderExpectError(t, dec)
 }
+
+func TestExpectGmailLabel(t *testing.T) {
+	dec := newTestDecoder(`\Inbox "\\Important" Work "Work stuff" "R&AOk-unions" {4}` + "\r\n" + `a"b)` + "\r\n")
+	want := []string{"\\Inbox", "\\Important", "Work", "Work stuff", "Réunions", `a"b)`}
+	for i, w := range want {
+		if i > 0 && !dec.ExpectSP() {
+			t.Fatalf("ExpectSP() = %v", dec.Err())
+		}
+		var label string
+		if !dec.ExpectGmailLabel(&label) {
+			t.Fatalf("ExpectGmailLabel() = %v", dec.Err())
+		} else if label != w {
+			t.Errorf("ExpectGmailLabel() = %q, want %q", label, w)
+		}
+	}
+
+	dec = newTestDecoder("\"&\"\r\n")
+	var label string
+	if dec.ExpectGmailLabel(&label) {
+		t.Fatal("ExpectGmailLabel accepted an invalid label")
+	}
+	expectDecoderExpectError(t, dec)
+}

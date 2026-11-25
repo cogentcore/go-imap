@@ -27,3 +27,24 @@ func TestSearchCriteriaAndSize(t *testing.T) {
 		}
 	}
 }
+
+func TestSearchCriteriaAndGmail(t *testing.T) {
+	c := SearchCriteria{GmailRaw: "a OR b"}
+	c.And(&SearchCriteria{GmailRaw: "c", GmailThreadID: 42})
+	if c.GmailRaw != "(a OR b) (c)" || c.GmailThreadID != 42 || len(c.Not) != 0 {
+		t.Errorf("got GmailRaw = %q, GmailThreadID = %v, Not = %v", c.GmailRaw, c.GmailThreadID, c.Not)
+	}
+
+	c = SearchCriteria{GmailRaw: "a"}
+	c.And(&SearchCriteria{})
+	if c.GmailRaw != "a" {
+		t.Errorf("got GmailRaw = %q, want %q", c.GmailRaw, "a")
+	}
+
+	// A message can't be in two threads
+	c.And(&SearchCriteria{GmailThreadID: 43})
+	c.And(&SearchCriteria{GmailThreadID: 44})
+	if c.GmailThreadID != 43 || len(c.Not) != 1 {
+		t.Errorf("got GmailThreadID = %v, Not = %v, want 43 and a NOT ALL", c.GmailThreadID, c.Not)
+	}
+}

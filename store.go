@@ -20,3 +20,16 @@ type StoreFlags struct {
 	Silent bool
 	Flags  []Flag
 }
+
+// StoreGmailLabels alters Gmail labels of messages (X-GM-LABELS).
+//
+// System labels are represented with a leading backslash, e.g. "\\Inbox",
+// "\\Sent", "\\Important", "\\Starred", "\\Draft", "\\Trash" or
+// "\\Spam". Other labels are UTF-8 strings.
+//
+// This requires the X-GM-EXT-1 extension.
+type StoreGmailLabels struct {
+	Op     StoreFlagsOp
+	Silent bool
+	Labels []string
+}

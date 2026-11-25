@@ -42,3 +42,38 @@ func (c *Client) Store(numSet imap.NumSet, store *imap.StoreFlags, options *imap
 	enc.end()
 	return cmd
 }
+
+// StoreGmailLabels sends a STORE command altering Gmail labels
+// (X-GM-LABELS).
+//
+// Unless StoreGmailLabels.Silent is set, the server will return the updated
+// labels.
+//
+// This requires the X-GM-EXT-1 extension.
+func (c *Client) StoreGmailLabels(numSet imap.NumSet, store *imap.StoreGmailLabels) *FetchCommand {
+	cmd := &FetchCommand{
+		numSet: numSet,
+		msgs:   make(chan *FetchMessageData, 128),
+	}
+	enc := c.beginCommand(uidCmdName("STORE", imapwire.NumSetKind(numSet)), cmd)
+	enc.SP().NumSet(numSet).SP()
+	switch store.Op {
+	case imap.StoreFlagsSet:
+		// nothing to do
+	case imap.StoreFlagsAdd:
+		enc.Special('+')
+	case imap.StoreFlagsDel:
+		enc.Special('-')
+	default:
+		panic(fmt.Errorf("imapclient: unknown store flags op: %v", store.Op))
+	}
+	enc.Atom("X-GM-LABELS")
+	if store.Silent {
+		enc.Atom(".SILENT")
+	}
+	enc.SP().List(len(store.Labels), func(i int) {
+		enc.GmailLabel(store.Labels[i])
+	})
+	enc.end()
+	return cmd
+}

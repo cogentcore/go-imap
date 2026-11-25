@@ -20,6 +20,11 @@ type FetchOptions struct {
 	BinarySectionSize []*FetchItemBinarySectionSize // requires IMAP4rev2 or BINARY
 	ModSeq            bool                          // requires CONDSTORE
 
+	// Gmail extension fields (requires X-GM-EXT-1)
+	GmailMsgID    bool // X-GM-MSGID
+	GmailThreadID bool // X-GM-THRID
+	GmailLabels   bool // X-GM-LABELS
+
 	ChangedSince uint64 // requires CONDSTORE
 }
 

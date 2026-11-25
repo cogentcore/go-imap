@@ -527,6 +527,38 @@ func (dec *Decoder) ExpectMailbox(ptr *string) bool {
 	return true
 }
 
+// ExpectGmailLabel reads a Gmail label (X-GM-LABELS extension).
+//
+// System labels are returned with their leading backslash (e.g. "\\Inbox").
+// Other labels are decoded like mailbox names.
+func (dec *Decoder) ExpectGmailLabel(ptr *string) bool {
+	if dec.Special('\\') {
+		var name string
+		if !dec.ExpectAtom(&name) {
+			return false
+		}
+		*ptr = "\\" + name
+		return true
+	}
+	var label string
+	if !dec.ExpectAString(&label) {
+		return false
+	}
+	if strings.HasPrefix(label, "\\") {
+		// System label sent as a quoted string
+		*ptr = label
+		return true
+	}
+	label, err := utf7.Decode(label)
+	if err != nil {
+		return dec.returnErr(&DecoderExpectError{
+			Message: fmt.Sprintf("invalid Gmail label: %v", err),
+		})
+	}
+	*ptr = label
+	return true
+}
+
 func (dec *Decoder) ExpectUID(ptr *imap.UID) bool {
 	var num uint32
 	if !dec.ExpectNumber(&num) {
