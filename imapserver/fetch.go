@@ -75,8 +75,24 @@ func (c *Conn) handleFetch(dec *imapwire.Decoder, numKind NumKind) error {
 		}
 	}
 
+	if dec.SP() {
+		err := dec.ExpectList(func() error {
+			return readFetchModifier(dec, &options)
+		})
+		if err != nil {
+			return err
+		}
+	}
+
 	if !dec.ExpectCRLF() {
 		return dec.Err()
+	}
+
+	if (options.ModSeq || options.ChangedSince != 0) && !c.server.options.caps().Has(imap.CapCondStore) {
+		return newClientBugError("Unknown FETCH data item")
+	}
+	if (options.GmailMsgID || options.GmailThreadID || options.GmailLabels) && !c.server.options.caps().Has(imap.CapGmailExt1) {
+		return newClientBugError("Unknown FETCH data item")
 	}
 
 	if err := c.checkState(imap.ConnStateSelected); err != nil {
@@ -85,6 +101,16 @@ func (c *Conn) handleFetch(dec *imapwire.Decoder, numKind NumKind) error {
 
 	if numKind == NumKindUID {
 		options.UID = true
+	}
+	if options.ChangedSince != 0 {
+		// The CHANGEDSINCE FETCH modifier implies the MODSEQ FETCH data item
+		options.ModSeq = true
+	}
+	if options.ModSeq {
+		// FETCH MODSEQ is a CONDSTORE-enabling command
+		c.mutex.Lock()
+		c.enabled[imap.CapCondStore] = struct{}{}
+		c.mutex.Unlock()
 	}
 
 	w := &FetchWriter{conn: c, options: writerOptions}
@@ -108,6 +134,14 @@ func handleFetchAtt(dec *imapwire.Decoder, attName string, options *imap.FetchOp
 		options.RFC822Size = true
 	case "UID":
 		options.UID = true
+	case "MODSEQ":
+		options.ModSeq = true
+	case "X-GM-MSGID":
+		options.GmailMsgID = true
+	case "X-GM-THRID":
+		options.GmailThreadID = true
+	case "X-GM-LABELS":
+		options.GmailLabels = true
 	case "RFC822": // equivalent to BODY[]
 		bs := &imap.FetchItemBodySection{}
 		writerOptions.obsolete[bs] = attName
@@ -182,6 +216,22 @@ func handleFetchAtt(dec *imapwire.Decoder, attName string, options *imap.FetchOp
 		options.BodySection = append(options.BodySection, &section)
 	default:
 		return newClientBugError("Unknown FETCH data item")
+	}
+	return nil
+}
+
+func readFetchModifier(dec *imapwire.Decoder, options *imap.FetchOptions) error {
+	var name string
+	if !dec.ExpectAtom(&name) {
+		return dec.Err()
+	}
+	switch strings.ToUpper(name) {
+	case "CHANGEDSINCE":
+		if !dec.ExpectSP() || !dec.ExpectModSeq(&options.ChangedSince) {
+			return dec.Err()
+		}
+	default:
+		return newClientBugError("Unknown FETCH modifier")
 	}
 	return nil
 }
@@ -363,6 +413,43 @@ func (w *FetchResponseWriter) WriteFlags(flags []imap.Flag) {
 	w.writeItemSep()
 	w.enc.Atom("FLAGS").SP().List(len(flags), func(i int) {
 		w.enc.Flag(flags[i])
+	})
+}
+
+// WriteModSeq writes the message's mod-sequence.
+//
+// This requires the CONDSTORE extension.
+func (w *FetchResponseWriter) WriteModSeq(modSeq uint64) {
+	w.writeItemSep()
+	w.enc.Atom("MODSEQ").SP().Special('(').ModSeq(modSeq).Special(')')
+}
+
+// WriteGmailMsgID writes the message's Gmail message ID (X-GM-MSGID).
+//
+// This requires the X-GM-EXT-1 extension.
+func (w *FetchResponseWriter) WriteGmailMsgID(id uint64) {
+	w.writeItemSep()
+	w.enc.Atom("X-GM-MSGID").SP().ModSeq(id)
+}
+
+// WriteGmailThreadID writes the message's Gmail thread ID (X-GM-THRID).
+//
+// This requires the X-GM-EXT-1 extension.
+func (w *FetchResponseWriter) WriteGmailThreadID(id uint64) {
+	w.writeItemSep()
+	w.enc.Atom("X-GM-THRID").SP().ModSeq(id)
+}
+
+// WriteGmailLabels writes the message's Gmail labels (X-GM-LABELS).
+//
+// System labels must have a leading backslash (e.g. "\\Inbox"). Other labels
+// are UTF-8 strings, encoded like mailbox names.
+//
+// This requires the X-GM-EXT-1 extension.
+func (w *FetchResponseWriter) WriteGmailLabels(labels []string) {
+	w.writeItemSep()
+	w.enc.Atom("X-GM-LABELS").SP().List(len(labels), func(i int) {
+		w.enc.GmailLabel(labels[i])
 	})
 }
 

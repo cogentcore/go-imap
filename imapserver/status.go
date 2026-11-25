@@ -36,6 +36,13 @@ func (c *Conn) handleStatus(dec *imapwire.Decoder) error {
 		}
 	}
 
+	if options.HighestModSeq && !c.server.options.caps().Has(imap.CapCondStore) {
+		return &imap.Error{
+			Type: imap.StatusResponseTypeBad,
+			Text: "Unknown STATUS data item",
+		}
+	}
+
 	if err := c.checkState(imap.ConnStateAuthenticated); err != nil {
 		return err
 	}
@@ -43,6 +50,13 @@ func (c *Conn) handleStatus(dec *imapwire.Decoder) error {
 	data, err := c.session.Status(mailbox, &options)
 	if err != nil {
 		return err
+	}
+
+	if options.HighestModSeq {
+		// STATUS with HIGHESTMODSEQ is a CONDSTORE-enabling command
+		c.mutex.Lock()
+		c.enabled[imap.CapCondStore] = struct{}{}
+		c.mutex.Unlock()
 	}
 
 	return c.writeStatus(data, &options)
@@ -86,6 +100,9 @@ func (c *Conn) writeStatus(data *imap.StatusData, options *imap.StatusOptions) e
 	if options.NumRecent {
 		listEnc.Item().Atom("RECENT").SP().Number(*data.NumRecent)
 	}
+	if options.HighestModSeq {
+		listEnc.Item().Atom("HIGHESTMODSEQ").SP().ModSeq(data.HighestModSeq)
+	}
 	listEnc.End()
 
 	return enc.CRLF()
@@ -115,6 +132,8 @@ func readStatusItem(dec *imapwire.Decoder, options *imap.StatusOptions) error {
 		options.DeletedStorage = true
 	case "RECENT":
 		options.NumRecent = true
+	case "HIGHESTMODSEQ":
+		options.HighestModSeq = true
 	default:
 		return &imap.Error{
 			Type: imap.StatusResponseTypeBad,

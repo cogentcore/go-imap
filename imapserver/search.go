@@ -71,6 +71,17 @@ func (c *Conn) handleSearch(tag string, dec *imapwire.Decoder, numKind NumKind) 
 		return dec.Err()
 	}
 
+	if searchCriteriaHas(&criteria, func(criteria *imap.SearchCriteria) bool {
+		return criteria.ModSeq != nil
+	}) && !c.server.options.caps().Has(imap.CapCondStore) {
+		return newClientBugError("Unknown search key MODSEQ")
+	}
+	if searchCriteriaHas(&criteria, func(criteria *imap.SearchCriteria) bool {
+		return criteria.GmailRaw != "" || criteria.GmailThreadID != 0
+	}) && !c.server.options.caps().Has(imap.CapGmailExt1) {
+		return newClientBugError("Unknown search key")
+	}
+
 	if err := c.checkState(imap.ConnStateSelected); err != nil {
 		return err
 	}
@@ -88,7 +99,7 @@ func (c *Conn) handleSearch(tag string, dec *imapwire.Decoder, numKind NumKind) 
 	if c.enabled.Has(imap.CapIMAP4rev2) || extended {
 		return c.writeESearch(tag, data, &options, numKind)
 	} else {
-		return c.writeSearch(data.All)
+		return c.writeSearch(data.All, data.ModSeq)
 	}
 }
 
@@ -117,6 +128,9 @@ func (c *Conn) writeESearch(tag string, data *imap.SearchData, options *imap.Sea
 	if options.ReturnCount {
 		enc.SP().Atom("COUNT").SP().Number(data.Count)
 	}
+	if data.ModSeq != 0 {
+		enc.SP().Atom("MODSEQ").SP().ModSeq(data.ModSeq)
+	}
 	return enc.CRLF()
 }
 
@@ -131,7 +145,7 @@ func isNumSetEmpty(numSet imap.NumSet) bool {
 	}
 }
 
-func (c *Conn) writeSearch(numSet imap.NumSet) error {
+func (c *Conn) writeSearch(numSet imap.NumSet, modSeq uint64) error {
 	enc := newResponseEncoder(c)
 	defer enc.end()
 
@@ -153,6 +167,9 @@ func (c *Conn) writeSearch(numSet imap.NumSet) error {
 	}
 	if !ok {
 		return fmt.Errorf("imapserver: failed to enumerate message numbers in SEARCH response")
+	}
+	if modSeq != 0 {
+		enc.SP().Special('(').Atom("MODSEQ").SP().ModSeq(modSeq).Special(')')
 	}
 	return enc.CRLF()
 }
@@ -326,6 +343,43 @@ func readSearchKeyWithAtom(criteria *imap.SearchCriteria, dec *imapwire.Decoder,
 			return err
 		}
 		criteria.Or = append(criteria.Or, or)
+	case "MODSEQ":
+		if !dec.ExpectSP() {
+			return dec.Err()
+		}
+		modSeq := &imap.SearchCriteriaModSeq{}
+		if dec.Quoted(&modSeq.MetadataName) {
+			var typ string
+			if !dec.ExpectSP() || !dec.ExpectAtom(&typ) || !dec.ExpectSP() {
+				return dec.Err()
+			}
+			modSeq.MetadataType = imap.SearchCriteriaMetadataType(strings.ToLower(typ))
+			switch modSeq.MetadataType {
+			case imap.SearchCriteriaMetadataAll, imap.SearchCriteriaMetadataPrivate, imap.SearchCriteriaMetadataShared:
+				// ok
+			default:
+				return newClientBugError("invalid MODSEQ search entry type")
+			}
+		}
+		if !dec.ExpectModSeq(&modSeq.ModSeq) {
+			return dec.Err()
+		}
+		if criteria.ModSeq != nil {
+			return newClientBugError("multiple MODSEQ search keys are not supported")
+		}
+		criteria.ModSeq = modSeq
+	case "X-GM-RAW":
+		var raw string
+		if !dec.ExpectSP() || !dec.ExpectAString(&raw) {
+			return dec.Err()
+		}
+		criteria.And(&imap.SearchCriteria{GmailRaw: raw})
+	case "X-GM-THRID":
+		var thrid uint64
+		if !dec.ExpectSP() || !dec.ExpectModSeq(&thrid) {
+			return dec.Err()
+		}
+		criteria.And(&imap.SearchCriteria{GmailThreadID: thrid})
 	case "$":
 		criteria.UID = append(criteria.UID, imap.SearchRes())
 	default:
@@ -340,6 +394,25 @@ func readSearchKeyWithAtom(criteria *imap.SearchCriteria, dec *imapwire.Decoder,
 		criteria.SeqNum = append(criteria.SeqNum, seqSet)
 	}
 	return nil
+}
+
+// searchCriteriaHas checks whether f returns true for criteria or any of its
+// nested criteria.
+func searchCriteriaHas(criteria *imap.SearchCriteria, f func(*imap.SearchCriteria) bool) bool {
+	if f(criteria) {
+		return true
+	}
+	for i := range criteria.Not {
+		if searchCriteriaHas(&criteria.Not[i], f) {
+			return true
+		}
+	}
+	for i := range criteria.Or {
+		if searchCriteriaHas(&criteria.Or[i][0], f) || searchCriteriaHas(&criteria.Or[i][1], f) {
+			return true
+		}
+	}
+	return false
 }
 
 func searchKeyFlag(key string) imap.Flag {

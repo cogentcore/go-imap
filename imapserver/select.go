@@ -2,6 +2,7 @@ package imapserver
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/internal/imapwire"
@@ -9,8 +10,29 @@ import (
 
 func (c *Conn) handleSelect(tag string, dec *imapwire.Decoder, readOnly bool) error {
 	var mailbox string
-	if !dec.ExpectSP() || !dec.ExpectMailbox(&mailbox) || !dec.ExpectCRLF() {
+	if !dec.ExpectSP() || !dec.ExpectMailbox(&mailbox) {
 		return dec.Err()
+	}
+
+	options := imap.SelectOptions{ReadOnly: readOnly}
+	if dec.SP() {
+		err := dec.ExpectList(func() error {
+			return readSelectParam(dec, &options)
+		})
+		if err != nil {
+			return err
+		}
+	}
+
+	if !dec.ExpectCRLF() {
+		return dec.Err()
+	}
+
+	if options.CondStore && !c.server.options.caps().Has(imap.CapCondStore) {
+		return &imap.Error{
+			Type: imap.StatusResponseTypeBad,
+			Text: "Unknown SELECT parameter",
+		}
 	}
 
 	if err := c.checkState(imap.ConnStateAuthenticated); err != nil {
@@ -32,10 +54,17 @@ func (c *Conn) handleSelect(tag string, dec *imapwire.Decoder, readOnly bool) er
 		}
 	}
 
-	options := imap.SelectOptions{ReadOnly: readOnly}
 	data, err := c.session.Select(mailbox, &options)
 	if err != nil {
 		return err
+	}
+
+	if options.CondStore {
+		// A SELECT/EXAMINE command with the CONDSTORE parameter is a
+		// CONDSTORE-enabling command
+		c.mutex.Lock()
+		c.enabled[imap.CapCondStore] = struct{}{}
+		c.mutex.Unlock()
 	}
 
 	if err := c.writeExists(data.NumMessages); err != nil {
@@ -68,6 +97,15 @@ func (c *Conn) handleSelect(tag string, dec *imapwire.Decoder, readOnly bool) er
 			return err
 		}
 	}
+	if data.HighestModSeq != 0 {
+		if err := c.writeHighestModSeq(data.HighestModSeq); err != nil {
+			return err
+		}
+	} else if c.enabled.Has(imap.CapCondStore) {
+		if err := c.writeNoModSeq(); err != nil {
+			return err
+		}
+	}
 
 	c.state = imap.ConnStateSelected
 	c.readOnly = readOnly || data.ReadOnly
@@ -93,6 +131,23 @@ func (c *Conn) handleSelect(tag string, dec *imapwire.Decoder, readOnly bool) er
 		Code: code,
 		Text: fmt.Sprintf("%v completed", cmdName),
 	})
+}
+
+func readSelectParam(dec *imapwire.Decoder, options *imap.SelectOptions) error {
+	var name string
+	if !dec.ExpectAtom(&name) {
+		return dec.Err()
+	}
+	switch strings.ToUpper(name) {
+	case "CONDSTORE":
+		options.CondStore = true
+	default:
+		return &imap.Error{
+			Type: imap.StatusResponseTypeBad,
+			Text: "Unknown SELECT parameter",
+		}
+	}
+	return nil
 }
 
 func (c *Conn) handleUnselect(dec *imapwire.Decoder, expunge bool) error {
@@ -175,5 +230,23 @@ func (c *Conn) writePermanentFlags(flags []imap.Flag) error {
 		enc.Flag(flags[i])
 	}).Special(']')
 	enc.SP().Text("Permanent flags")
+	return enc.CRLF()
+}
+
+func (c *Conn) writeHighestModSeq(modSeq uint64) error {
+	enc := newResponseEncoder(c)
+	defer enc.end()
+	enc.Atom("*").SP().Atom("OK").SP()
+	enc.Special('[').Atom("HIGHESTMODSEQ").SP().ModSeq(modSeq).Special(']')
+	enc.SP().Text("Highest mod-sequence")
+	return enc.CRLF()
+}
+
+func (c *Conn) writeNoModSeq() error {
+	enc := newResponseEncoder(c)
+	defer enc.end()
+	enc.Atom("*").SP().Atom("OK").SP()
+	enc.Special('[').Atom("NOMODSEQ").Special(']')
+	enc.SP().Text("No mod-sequences in this mailbox")
 	return enc.CRLF()
 }

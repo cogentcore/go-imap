@@ -128,3 +128,21 @@ type SessionAppendLimit interface {
 	// this server in an APPEND command.
 	AppendLimit() uint32
 }
+
+// SessionGmail is an IMAP session which supports Gmail's IMAP extension
+// (X-GM-EXT-1).
+//
+// The Gmail FETCH data items (X-GM-MSGID, X-GM-THRID and X-GM-LABELS) are
+// requested via imap.FetchOptions and the Gmail search keys (X-GM-RAW and
+// X-GM-THRID) via imap.SearchCriteria. The server must advertise
+// imap.CapGmailExt1 in Options.Caps.
+type SessionGmail interface {
+	Session
+
+	// Selected state
+
+	// StoreGmailLabels alters the Gmail labels of messages (STORE
+	// X-GM-LABELS). Unless store.Silent is set, the updated labels must be
+	// written back with FetchResponseWriter.WriteGmailLabels.
+	StoreGmailLabels(w *FetchWriter, numSet imap.NumSet, store *imap.StoreGmailLabels) error
+}
